@@ -1,32 +1,51 @@
-# English Learning AI Agent (Java)
+# English Learning AI Agent (Java + Maven)
 
 支持两种模式：
 
 - CLI 命令行模式
 - HTTP 可视化页面模式
 
-## 运行 CLI
+## 使用 Maven 运行
+
+先编译：
 
 ```bash
-javac src/Main.java
-java -cp src Main
+mvn clean compile
 ```
 
-## 运行可视化 HTTP 页面
+运行 CLI：
 
 ```bash
-javac src/Main.java
-java -cp src Main web
+mvn exec:java
+```
+
+运行可视化 HTTP 页面：
+
+```bash
+mvn exec:java -Dexec.args="web"
 ```
 
 默认访问地址：
 
 - http://localhost:8080
 
-也可自定义端口：
+自定义端口：
 
 ```bash
-java -cp src Main web 18080
+mvn exec:java -Dexec.args="web 18080"
+```
+
+## 打包
+
+```bash
+mvn clean package
+java -jar target/english-learning-agent-1.0.0-SNAPSHOT.jar
+```
+
+Web 模式（jar）：
+
+```bash
+java -jar target/english-learning-agent-1.0.0-SNAPSHOT.jar web 18080
 ```
 
 ## 可选：接入真实大模型

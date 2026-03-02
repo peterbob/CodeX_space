@@ -5,8 +5,6 @@ import com.sun.net.httpserver.HttpServer;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -215,7 +213,7 @@ public class Main {
             } else {
                 System.out.println("未检测到 OPENAI_API_KEY，当前使用本地 fallback（可跑通流程）。\n");
             }
-            System.out.println("提示: 运行 `java -cp src Main web` 可打开可视化页面。\n");
+            System.out.println("提示: 运行 `mvn exec:java -Dexec.args=\"web\"` 可打开可视化页面。\n");
         }
 
         private void printMenu() {
@@ -258,21 +256,20 @@ public class Main {
                 sendMethodNotAllowed(exchange);
                 return;
             }
-            byte[] html = loadWebFile("src/web/index.html");
+            byte[] html = loadWebFile();
             sendResponse(exchange, 200, "text/html; charset=UTF-8", html);
         }
 
-        private static byte[] loadWebFile(String path) {
-            File f = new File(path);
-            if (!f.exists()) {
-                String fallback = "<html><body><h1>index.html not found</h1></body></html>";
-                return fallback.getBytes(StandardCharsets.UTF_8);
+        private static byte[] loadWebFile() {
+            InputStream is = Main.class.getResourceAsStream("/web/index.html");
+            if (is == null) {
+                return "<html><body><h1>index.html not found in resources</h1></body></html>"
+                        .getBytes(StandardCharsets.UTF_8);
             }
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             byte[] buf = new byte[1024];
             int n;
             try {
-                InputStream is = new FileInputStream(f);
                 while ((n = is.read(buf)) != -1) {
                     baos.write(buf, 0, n);
                 }
