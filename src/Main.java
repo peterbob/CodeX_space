@@ -1,9 +1,18 @@
+import com.sun.net.httpserver.Headers;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
+
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -18,9 +27,34 @@ import java.util.regex.Pattern;
 
 public class Main {
 
-    public static void main(String[] args) {
-        EnglishLearningAgent agent = EnglishLearningAgent.fromEnvironment();
-        agent.run();
+    public static void main(String[] args) throws Exception {
+        LlmClient llmClient = createLlmClient();
+        EnglishLearningAgent agent = new EnglishLearningAgent(llmClient);
+
+        if (args.length > 0 && "web".equalsIgnoreCase(args[0])) {
+            int port = args.length > 1 ? parsePort(args[1], 8080) : 8080;
+            new WebServer(agent, port).start();
+            return;
+        }
+
+        agent.runCli();
+    }
+
+    private static int parsePort(String raw, int fallback) {
+        try {
+            return Integer.parseInt(raw);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static LlmClient createLlmClient() {
+        String apiKey = System.getenv("OPENAI_API_KEY");
+        String model = envOrDefault("OPENAI_MODEL", "gpt-4.1-mini");
+        if (apiKey != null && !apiKey.trim().isEmpty()) {
+            return new OpenAiClient(apiKey, model);
+        }
+        return new LocalFallbackClient();
     }
 
     static class EnglishLearningAgent {
@@ -31,17 +65,7 @@ public class Main {
             this.llmClient = llmClient;
         }
 
-        static EnglishLearningAgent fromEnvironment() {
-            String apiKey = System.getenv("OPENAI_API_KEY");
-            String model = envOrDefault("OPENAI_MODEL", "gpt-4.1-mini");
-
-            if (apiKey != null && !apiKey.trim().isEmpty()) {
-                return new EnglishLearningAgent(new OpenAiClient(apiKey, model));
-            }
-            return new EnglishLearningAgent(new LocalFallbackClient());
-        }
-
-        void run() {
+        void runCli() {
             printWelcome();
             while (true) {
                 printMenu();
@@ -70,6 +94,59 @@ public class Main {
             }
         }
 
+        ConversationResult analyzeConversation(String userInput) {
+            String prompt = "You are an English tutor. Reply with JSON keys: reply, betterVersion, tip. " +
+                    "User sentence: " + userInput;
+            String raw = llmClient.chat(prompt);
+            return new ConversationResult(
+                    extractJsonField(raw, "reply", "Good attempt! Keep going."),
+                    extractJsonField(raw, "betterVersion", userInput),
+                    extractJsonField(raw, "tip", "Try adding one more detail next time.")
+            );
+        }
+
+        CorrectionResult analyzeCorrection(String text) {
+            String prompt = "Correct the grammar and style. Return JSON keys: corrected, chineseExplanation, keyMistakes. Text: " + text;
+            String raw = llmClient.chat(prompt);
+            return new CorrectionResult(
+                    extractJsonField(raw, "corrected", text),
+                    extractJsonField(raw, "chineseExplanation", "整体可理解，建议优化时态和搭配。"),
+                    extractJsonField(raw, "keyMistakes", "注意主谓一致和冠词。")
+            );
+        }
+
+        String analyzeVocabularyRaw(String text) {
+            String prompt = "Extract up to 8 useful vocabulary words from the text for Chinese learner. " +
+                    "Return JSON with cards (word, meaningZh, example). Text: " + text;
+            String raw = llmClient.chat(prompt);
+            if (raw.contains("cards")) {
+                return raw;
+            }
+
+            List<String> fallbackWords = extractTopWords(text, 8);
+            StringBuilder sb = new StringBuilder();
+            sb.append("{\"cards\":[");
+            for (int i = 0; i < fallbackWords.size(); i++) {
+                String word = fallbackWords.get(i);
+                if (i > 0) {
+                    sb.append(",");
+                }
+                sb.append("{\"word\":\"").append(escapeJson(word)).append("\",")
+                        .append("\"meaningZh\":\"待补充\",")
+                        .append("\"example\":\"I use '").append(escapeJson(word)).append("' in a sentence.\"}");
+            }
+            sb.append("]}");
+            return sb.toString();
+        }
+
+        String analyzePlan(String goal) {
+            String usedGoal = (goal == null || goal.trim().isEmpty()) ? "提升日常沟通能力" : goal.trim();
+            String prompt = "Create a 7-day English study plan for this goal: " + usedGoal +
+                    ". Return JSON key plan in Chinese.";
+            String raw = llmClient.chat(prompt);
+            return extractJsonField(raw, "plan", "第1-7天: 每天30分钟，10分钟输入+10分钟复述+10分钟纠错。重点: " + usedGoal);
+        }
+
         private void conversationPractice() {
             System.out.println("\n[自由对话模式] 输入英文，Agent 会回复并给你一个更自然表达建议。输入 exit 返回主菜单。");
             while (true) {
@@ -83,14 +160,10 @@ public class Main {
                     System.out.println("请输入一句英文。\n");
                     continue;
                 }
-
-                String prompt = "You are an English tutor. Reply with JSON keys: reply, betterVersion, tip. " +
-                        "User sentence: " + userInput;
-                String raw = llmClient.chat(prompt);
-
-                System.out.println("Agent: " + extractJsonField(raw, "reply", "Good attempt! Keep going."));
-                System.out.println("Better: " + extractJsonField(raw, "betterVersion", userInput));
-                System.out.println("Tip: " + extractJsonField(raw, "tip", "Try adding one more detail next time."));
+                ConversationResult result = analyzeConversation(userInput);
+                System.out.println("Agent: " + result.reply);
+                System.out.println("Better: " + result.betterVersion);
+                System.out.println("Tip: " + result.tip);
                 System.out.println();
             }
         }
@@ -104,12 +177,10 @@ public class Main {
                 return;
             }
 
-            String prompt = "Correct the grammar and style. Return JSON keys: corrected, chineseExplanation, keyMistakes. Text: " + text;
-            String raw = llmClient.chat(prompt);
-
-            System.out.println("纠错结果: " + extractJsonField(raw, "corrected", text));
-            System.out.println("中文解释: " + extractJsonField(raw, "chineseExplanation", "整体可理解，建议优化时态和搭配。"));
-            System.out.println("关键问题: " + extractJsonField(raw, "keyMistakes", "注意主谓一致和冠词。"));
+            CorrectionResult result = analyzeCorrection(text);
+            System.out.println("纠错结果: " + result.corrected);
+            System.out.println("中文解释: " + result.chineseExplanation);
+            System.out.println("关键问题: " + result.keyMistakes);
             System.out.println();
         }
 
@@ -121,20 +192,7 @@ public class Main {
                 System.out.println("内容为空，已返回主菜单。\n");
                 return;
             }
-
-            String prompt = "Extract up to 8 useful vocabulary words from the text for Chinese learner. " +
-                    "Return JSON with cards (word, meaningZh, example). Text: " + text;
-            String raw = llmClient.chat(prompt);
-
-            List<String> fallbackWords = extractTopWords(text, 8);
-            if (raw.contains("cards")) {
-                System.out.println("词汇卡片(JSON): " + raw);
-            } else {
-                System.out.println("推荐词汇:");
-                for (String word : fallbackWords) {
-                    System.out.println("- " + word + " | 中文: 待补充 | 例句: I use '" + word + "' in a sentence.");
-                }
-            }
+            System.out.println("词汇卡片(JSON): " + analyzeVocabularyRaw(text));
             System.out.println();
         }
 
@@ -142,15 +200,7 @@ public class Main {
             System.out.println("\n[学习计划] 我会根据你的目标生成 7 天练习建议。\n");
             System.out.print("你的目标（如 雅思6.5 / 职场口语 / 旅行英语）: ");
             String goal = scanner.nextLine().trim();
-            if (goal.isEmpty()) {
-                goal = "提升日常沟通能力";
-            }
-
-            String prompt = "Create a 7-day English study plan for this goal: " + goal +
-                    ". Return JSON key plan in Chinese.";
-            String raw = llmClient.chat(prompt);
-
-            String plan = extractJsonField(raw, "plan", "第1-7天: 每天30分钟，10分钟输入+10分钟复述+10分钟纠错。重点: " + goal);
+            String plan = analyzePlan(goal);
             System.out.println("你的 7 天计划:");
             System.out.println(plan);
             System.out.println();
@@ -165,6 +215,7 @@ public class Main {
             } else {
                 System.out.println("未检测到 OPENAI_API_KEY，当前使用本地 fallback（可跑通流程）。\n");
             }
+            System.out.println("提示: 运行 `java -cp src Main web` 可打开可视化页面。\n");
         }
 
         private void printMenu() {
@@ -174,11 +225,184 @@ public class Main {
             System.out.println("4. 7天学习计划");
             System.out.println("5. 退出");
         }
+    }
 
-        private static String envOrDefault(String name, String fallback) {
-            String value = System.getenv(name);
-            return (value == null || value.trim().isEmpty()) ? fallback : value;
+    static class WebServer {
+        private final EnglishLearningAgent agent;
+        private final int port;
+
+        WebServer(EnglishLearningAgent agent, int port) {
+            this.agent = agent;
+            this.port = port;
         }
+
+        void start() throws IOException {
+            HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
+            server.createContext("/", new IndexHandler());
+            server.createContext("/api/chat", new ChatHandler(agent));
+            server.createContext("/api/correct", new CorrectHandler(agent));
+            server.createContext("/api/vocab", new VocabHandler(agent));
+            server.createContext("/api/plan", new PlanHandler(agent));
+            server.setExecutor(null);
+            server.start();
+
+            System.out.println("Web 服务已启动: http://localhost:" + port);
+            System.out.println("按 Ctrl+C 停止服务。");
+        }
+    }
+
+    static class IndexHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendMethodNotAllowed(exchange);
+                return;
+            }
+            byte[] html = loadWebFile("src/web/index.html");
+            sendResponse(exchange, 200, "text/html; charset=UTF-8", html);
+        }
+
+        private static byte[] loadWebFile(String path) {
+            File f = new File(path);
+            if (!f.exists()) {
+                String fallback = "<html><body><h1>index.html not found</h1></body></html>";
+                return fallback.getBytes(StandardCharsets.UTF_8);
+            }
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            byte[] buf = new byte[1024];
+            int n;
+            try {
+                InputStream is = new FileInputStream(f);
+                while ((n = is.read(buf)) != -1) {
+                    baos.write(buf, 0, n);
+                }
+                is.close();
+            } catch (IOException e) {
+                return ("<html><body><h1>Read error: " + escapeJson(e.getMessage()) + "</h1></body></html>")
+                        .getBytes(StandardCharsets.UTF_8);
+            }
+            return baos.toByteArray();
+        }
+    }
+
+    static class ChatHandler implements HttpHandler {
+        private final EnglishLearningAgent agent;
+
+        ChatHandler(EnglishLearningAgent agent) {
+            this.agent = agent;
+        }
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendMethodNotAllowed(exchange);
+                return;
+            }
+            String body = readBody(exchange);
+            String text = extractJsonField(body, "text", "");
+            ConversationResult result = agent.analyzeConversation(text);
+            String json = "{" +
+                    "\"reply\":\"" + escapeJson(result.reply) + "\"," +
+                    "\"betterVersion\":\"" + escapeJson(result.betterVersion) + "\"," +
+                    "\"tip\":\"" + escapeJson(result.tip) + "\"" +
+                    "}";
+            sendJson(exchange, json);
+        }
+    }
+
+    static class CorrectHandler implements HttpHandler {
+        private final EnglishLearningAgent agent;
+
+        CorrectHandler(EnglishLearningAgent agent) {
+            this.agent = agent;
+        }
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendMethodNotAllowed(exchange);
+                return;
+            }
+            String body = readBody(exchange);
+            String text = extractJsonField(body, "text", "");
+            CorrectionResult result = agent.analyzeCorrection(text);
+            String json = "{" +
+                    "\"corrected\":\"" + escapeJson(result.corrected) + "\"," +
+                    "\"chineseExplanation\":\"" + escapeJson(result.chineseExplanation) + "\"," +
+                    "\"keyMistakes\":\"" + escapeJson(result.keyMistakes) + "\"" +
+                    "}";
+            sendJson(exchange, json);
+        }
+    }
+
+    static class VocabHandler implements HttpHandler {
+        private final EnglishLearningAgent agent;
+
+        VocabHandler(EnglishLearningAgent agent) {
+            this.agent = agent;
+        }
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendMethodNotAllowed(exchange);
+                return;
+            }
+            String body = readBody(exchange);
+            String text = extractJsonField(body, "text", "");
+            sendJson(exchange, agent.analyzeVocabularyRaw(text));
+        }
+    }
+
+    static class PlanHandler implements HttpHandler {
+        private final EnglishLearningAgent agent;
+
+        PlanHandler(EnglishLearningAgent agent) {
+            this.agent = agent;
+        }
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendMethodNotAllowed(exchange);
+                return;
+            }
+            String body = readBody(exchange);
+            String text = extractJsonField(body, "text", "");
+            String plan = agent.analyzePlan(text);
+            String json = "{\"plan\":\"" + escapeJson(plan) + "\"}";
+            sendJson(exchange, json);
+        }
+    }
+
+    private static void sendMethodNotAllowed(HttpExchange exchange) throws IOException {
+        sendResponse(exchange, 405, "text/plain; charset=UTF-8", "Method Not Allowed".getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static void sendJson(HttpExchange exchange, String json) throws IOException {
+        sendResponse(exchange, 200, "application/json; charset=UTF-8", json.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static void sendResponse(HttpExchange exchange, int status, String contentType, byte[] body) throws IOException {
+        Headers headers = exchange.getResponseHeaders();
+        headers.set("Content-Type", contentType);
+        headers.set("Cache-Control", "no-store");
+        exchange.sendResponseHeaders(status, body.length);
+        OutputStream os = exchange.getResponseBody();
+        os.write(body);
+        os.flush();
+        os.close();
+    }
+
+    private static String readBody(HttpExchange exchange) throws IOException {
+        BufferedReader br = new BufferedReader(new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8));
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while ((line = br.readLine()) != null) {
+            sb.append(line);
+        }
+        br.close();
+        return sb.toString();
     }
 
     interface LlmClient {
@@ -300,6 +524,35 @@ public class Main {
         }
     }
 
+    static class ConversationResult {
+        final String reply;
+        final String betterVersion;
+        final String tip;
+
+        ConversationResult(String reply, String betterVersion, String tip) {
+            this.reply = reply;
+            this.betterVersion = betterVersion;
+            this.tip = tip;
+        }
+    }
+
+    static class CorrectionResult {
+        final String corrected;
+        final String chineseExplanation;
+        final String keyMistakes;
+
+        CorrectionResult(String corrected, String chineseExplanation, String keyMistakes) {
+            this.corrected = corrected;
+            this.chineseExplanation = chineseExplanation;
+            this.keyMistakes = keyMistakes;
+        }
+    }
+
+    private static String envOrDefault(String name, String fallback) {
+        String value = System.getenv(name);
+        return (value == null || value.trim().isEmpty()) ? fallback : value;
+    }
+
     private static String extractJsonField(String json, String field, String fallback) {
         Pattern p = Pattern.compile("\\\"" + Pattern.quote(field) + "\\\"\\s*:\\s*\\\"(.*?)\\\"", Pattern.DOTALL);
         Matcher m = p.matcher(json);
@@ -342,7 +595,10 @@ public class Main {
     private static List<String> extractTopWords(String text, int limit) {
         String normalized = text.toLowerCase(Locale.ROOT).replaceAll("[^a-z\\s]", " ");
         String[] tokens = normalized.split("\\s+");
-        List<String> stopwords = Arrays.asList("the", "a", "an", "is", "are", "am", "to", "in", "on", "at", "for", "of", "and", "or", "it", "i", "you", "he", "she", "they", "we", "this", "that", "with", "be", "as", "was", "were", "my", "your");
+        List<String> stopwords = Arrays.asList(
+                "the", "a", "an", "is", "are", "am", "to", "in", "on", "at", "for", "of", "and", "or", "it", "i", "you",
+                "he", "she", "they", "we", "this", "that", "with", "be", "as", "was", "were", "my", "your"
+        );
 
         Set<String> unique = new LinkedHashSet<String>();
         for (String t : tokens) {

@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>English Learning Agent</title>
+  <style>
+    :root {
+      --bg1: #f4f8ff;
+      --bg2: #e8f8ef;
+      --ink: #17212b;
+      --brand: #0a7a5f;
+      --brand-2: #2f5dcf;
+      --card: rgba(255, 255, 255, 0.84);
+      --line: #d9e2ef;
+      --shadow: 0 20px 45px rgba(12, 35, 64, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Avenir Next", "Segoe UI", "PingFang SC", sans-serif;
+      color: var(--ink);
+      background: radial-gradient(1200px 700px at -5% -10%, #d9edff 0%, transparent 58%),
+                  radial-gradient(1400px 900px at 105% 0%, #d7ffe6 0%, transparent 52%),
+                  linear-gradient(150deg, var(--bg1), var(--bg2));
+      min-height: 100vh;
+      padding: 30px 16px 60px;
+    }
+
+    .container {
+      max-width: 980px;
+      margin: 0 auto;
+      animation: fadeUp 0.55s ease;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      letter-spacing: 0.3px;
+    }
+
+    .sub {
+      margin-top: 8px;
+      color: #456;
+      font-size: 15px;
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .tab {
+      border: 1px solid var(--line);
+      background: var(--card);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 13px 10px;
+      font-size: 14px;
+      font-weight: 650;
+      cursor: pointer;
+      transition: transform .2s ease, border-color .2s ease, background .2s ease;
+    }
+
+    .tab:hover { transform: translateY(-1px); }
+    .tab.active {
+      border-color: var(--brand-2);
+      background: #eef3ff;
+      color: #143574;
+    }
+
+    .panel {
+      margin-top: 14px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      padding: 18px;
+      display: none;
+    }
+
+    .panel.active { display: block; animation: fadeUp .3s ease; }
+
+    textarea, input {
+      width: 100%;
+      border: 1px solid #cbd8ea;
+      border-radius: 12px;
+      padding: 12px 13px;
+      font-size: 15px;
+      outline: none;
+      background: rgba(255,255,255,.95);
+    }
+
+    textarea:focus, input:focus {
+      border-color: #75a3ff;
+      box-shadow: 0 0 0 3px rgba(107, 154, 255, 0.2);
+    }
+
+    textarea { min-height: 110px; resize: vertical; }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: none;
+      border-radius: 11px;
+      background: linear-gradient(120deg, var(--brand), var(--brand-2));
+      color: #fff;
+      padding: 11px 17px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .15s ease, filter .15s ease;
+    }
+
+    button:hover { transform: translateY(-1px); filter: brightness(1.03); }
+
+    .out {
+      margin-top: 14px;
+      border: 1px solid #dbe4f0;
+      border-radius: 12px;
+      background: #fff;
+      padding: 12px;
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      min-height: 80px;
+    }
+
+    .cards {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 12px;
+    }
+
+    .card {
+      border: 1px solid #dfe6f2;
+      border-radius: 12px;
+      background: #fff;
+      padding: 12px;
+      box-shadow: 0 7px 18px rgba(18, 45, 78, .08);
+    }
+
+    .word {
+      font-size: 18px;
+      font-weight: 750;
+      color: #153a88;
+    }
+
+    .muted { color: #5a6a7d; font-size: 13px; }
+
+    @media (max-width: 760px) {
+      h1 { font-size: 28px; }
+      .tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>English Learning AI Agent</h1>
+  <div class="sub">可视化训练台：对话、纠错、词汇卡片、7天计划</div>
+
+  <div class="tabs">
+    <button class="tab active" data-target="chat">自由对话</button>
+    <button class="tab" data-target="correct">语法纠错</button>
+    <button class="tab" data-target="vocab">词汇卡片</button>
+    <button class="tab" data-target="plan">7天计划</button>
+  </div>
+
+  <section class="panel active" id="chat">
+    <textarea id="chatInput" placeholder="输入你的英文句子...">I very like learn english</textarea>
+    <div class="row">
+      <button onclick="runChat()">开始对话分析</button>
+    </div>
+    <div class="out" id="chatOut">等待输入...</div>
+  </section>
+
+  <section class="panel" id="correct">
+    <textarea id="correctInput" placeholder="输入需要纠错的英文..."></textarea>
+    <div class="row">
+      <button onclick="runCorrect()">执行纠错</button>
+    </div>
+    <div class="out" id="correctOut">等待输入...</div>
+  </section>
+
+  <section class="panel" id="vocab">
+    <textarea id="vocabInput" placeholder="粘贴一段英文，用于提取词汇..."></textarea>
+    <div class="row">
+      <button onclick="runVocab()">生成词汇卡片</button>
+    </div>
+    <div class="cards" id="vocabCards"></div>
+  </section>
+
+  <section class="panel" id="plan">
+    <input id="planInput" placeholder="输入目标，如 雅思6.5 / 旅行英语 / 职场口语" />
+    <div class="row">
+      <button onclick="runPlan()">生成学习计划</button>
+    </div>
+    <div class="out" id="planOut">等待输入...</div>
+  </section>
+</div>
+
+<script>
+  const tabs = document.querySelectorAll('.tab');
+  const panels = document.querySelectorAll('.panel');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      panels.forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById(tab.dataset.target).classList.add('active');
+    });
+  });
+
+  async function postJson(url, text) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }
+
+  function setLoading(id) {
+    document.getElementById(id).textContent = '处理中...';
+  }
+
+  async function runChat() {
+    const input = document.getElementById('chatInput').value.trim();
+    if (!input) return;
+    setLoading('chatOut');
+    try {
+      const data = await postJson('/api/chat', input);
+      document.getElementById('chatOut').textContent =
+        'Agent: ' + (data.reply || '') + '\n\n' +
+        'Better: ' + (data.betterVersion || '') + '\n\n' +
+        'Tip: ' + (data.tip || '');
+    } catch (e) {
+      document.getElementById('chatOut').textContent = '请求失败: ' + e.message;
+    }
+  }
+
+  async function runCorrect() {
+    const input = document.getElementById('correctInput').value.trim();
+    if (!input) return;
+    setLoading('correctOut');
+    try {
+      const data = await postJson('/api/correct', input);
+      document.getElementById('correctOut').textContent =
+        '纠错结果: ' + (data.corrected || '') + '\n\n' +
+        '中文解释: ' + (data.chineseExplanation || '') + '\n\n' +
+        '关键问题: ' + (data.keyMistakes || '');
+    } catch (e) {
+      document.getElementById('correctOut').textContent = '请求失败: ' + e.message;
+    }
+  }
+
+  async function runVocab() {
+    const input = document.getElementById('vocabInput').value.trim();
+    if (!input) return;
+    const box = document.getElementById('vocabCards');
+    box.innerHTML = '<div class="muted">处理中...</div>';
+    try {
+      const data = await postJson('/api/vocab', input);
+      const cards = Array.isArray(data.cards) ? data.cards : [];
+      if (cards.length === 0) {
+        box.innerHTML = '<div class="muted">没有可展示词汇</div>';
+        return;
+      }
+      box.innerHTML = cards.map(c => `
+        <article class="card">
+          <div class="word">${escapeHtml(c.word || '')}</div>
+          <div class="muted">中文: ${escapeHtml(c.meaningZh || '')}</div>
+          <div style="margin-top:8px;">${escapeHtml(c.example || '')}</div>
+        </article>
+      `).join('');
+    } catch (e) {
+      box.innerHTML = '<div class="muted">请求失败: ' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  async function runPlan() {
+    const input = document.getElementById('planInput').value.trim();
+    setLoading('planOut');
+    try {
+      const data = await postJson('/api/plan', input);
+      document.getElementById('planOut').textContent = data.plan || '';
+    } catch (e) {
+      document.getElementById('planOut').textContent = '请求失败: ' + e.message;
+    }
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+</script>
+</body>
+</html>

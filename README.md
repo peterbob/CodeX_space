@@ -1,17 +1,32 @@
 # English Learning AI Agent (Java)
 
-一个命令行版英语学习 Agent，支持：
+支持两种模式：
 
-- 自由对话练习（返回更自然表达）
-- 英文语法纠错（含中文解释）
-- 词汇卡片生成
-- 7天学习计划
+- CLI 命令行模式
+- HTTP 可视化页面模式
 
-## 运行
+## 运行 CLI
 
 ```bash
 javac src/Main.java
 java -cp src Main
+```
+
+## 运行可视化 HTTP 页面
+
+```bash
+javac src/Main.java
+java -cp src Main web
+```
+
+默认访问地址：
+
+- http://localhost:8080
+
+也可自定义端口：
+
+```bash
+java -cp src Main web 18080
 ```
 
 ## 可选：接入真实大模型
@@ -23,10 +38,4 @@ export OPENAI_API_KEY="your_api_key"
 export OPENAI_MODEL="gpt-4.1-mini"
 ```
 
-未设置 API Key 时会使用本地 fallback，用于离线演示流程。
-
-## 后续可扩展
-
-- 保存学习记录（SQLite / JSON）
-- 加入每日复习（SRS）
-- 增加口语评分（发音维度）
+未设置 API Key 时会使用本地 fallback（可离线演示完整流程）。
